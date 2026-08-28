@@ -21,7 +21,7 @@ Aplicativo web que **grava o atendimento**, **transcreve** a consulta bruta, con
 - Remove conversas triviais sem impacto clínico e elimina redundâncias.
 - Não emite hipóteses diagnósticas, impressões subjetivas nem condutas próprias — registra apenas a conduta declarada pelo médico.
 
-## Executando
+## Executando no navegador
 
 Requisitos: Node.js 20+ e uma chave da API da Anthropic.
 
@@ -38,8 +38,27 @@ npm run build
 npm start
 ```
 
+## Aplicativo de desktop (macOS)
+
+O app pode ser empacotado como aplicativo nativo do macOS (Electron), com ícone próprio e instalador `.dmg`:
+
+```bash
+npm install
+npm run app        # roda o app desktop em modo de desenvolvimento
+npm run dist:mac   # gera o instalador em release/ (rode em um Mac)
+```
+
+Abra o `.dmg` gerado em `release/` e arraste **Anamnese Médica** para Aplicativos (ou para a Mesa/Desktop, se preferir o ícone na área de trabalho).
+
+Notas do desktop:
+
+- **Chave da API**: no app empacotado, crie o arquivo `~/Library/Application Support/Anamnese Médica/.env` com a linha `ANTHROPIC_API_KEY=sk-ant-...`. O próprio app mostra o caminho exato num aviso quando a chave não é encontrada. Em desenvolvimento (`npm run app`), o `.env` da raiz do projeto é usado.
+- **Microfone**: o macOS pede a permissão na primeira gravação (o texto da permissão já está configurado no app).
+- **Transcrição no desktop**: o serviço de fala do Chrome não existe dentro do Electron; o app usa **transcrição local (Whisper via transformers.js)** — grave normalmente e clique em "Transcrever gravação (local)". Na primeira vez, o modelo (~80 MB) é baixado e fica em cache; o áudio nunca sai do computador. Para maior acurácia, troque `onnx-community/whisper-base` por `onnx-community/whisper-small` em `public/app.js` (download maior).
+- **Build sem assinatura**: sem certificado de desenvolvedor Apple, o build sai não assinado — na primeira abertura, clique com o botão direito no app → "Abrir".
+
 ## Notas
 
-- A transcrição ao vivo usa a Web Speech API, disponível no Chrome e Edge (em outros navegadores, grave o áudio e digite/cole a transcrição). No Chrome, o áudio do reconhecimento é processado por serviço do navegador — avalie a política de privacidade aplicável ao seu contexto clínico antes de usar com pacientes reais.
+- No navegador, a transcrição ao vivo usa a Web Speech API (Chrome e Edge). Nesse modo o áudio do reconhecimento é processado por serviço do navegador — avalie a política de privacidade aplicável ao seu contexto clínico antes de usar com pacientes reais. A alternativa "Transcrever gravação (local)" processa tudo no dispositivo e também funciona em qualquer navegador.
 - A chamada ao modelo usa `claude-opus-5` com fallback de recusa habilitado (`fallbacks: "default"`), streaming e cache do prompt de sistema.
 - **A anamnese gerada é apoio à documentação e deve ser revisada pelo profissional responsável antes de ir ao prontuário.**

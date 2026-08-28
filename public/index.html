@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Especialista em Documentação Médica</title>
+  <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -22,12 +23,17 @@
         <span id="record-timer" class="timer"></span>
       </div>
       <p id="speech-unsupported" class="warn hidden">
-        Este navegador não oferece reconhecimento de fala (use Chrome ou Edge).
-        Você ainda pode gravar o áudio e digitar/colar a transcrição abaixo.
+        A transcrição ao vivo não está disponível aqui. Grave normalmente e use
+        <strong>“Transcrever gravação”</strong> ao final — o áudio é processado
+        localmente, sem sair do computador. Ou digite/cole a transcrição abaixo.
       </p>
       <div id="audio-playback" class="hidden">
         <audio id="audio-player" controls></audio>
         <a id="audio-download" download="consulta.webm">⬇️ Baixar áudio</a>
+      </div>
+      <div id="local-transcribe" class="controls hidden">
+        <button id="btn-transcribe" class="secondary">📝 Transcrever gravação (local)</button>
+        <span id="transcribe-status" class="status"></span>
       </div>
     </section>
 

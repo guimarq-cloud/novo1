@@ -20,16 +20,24 @@ const btnCopy = document.getElementById("btn-copy");
 const followupEl = document.getElementById("followup");
 const followupText = document.getElementById("followup-text");
 const btnFollowup = document.getElementById("btn-followup");
+const localTranscribe = document.getElementById("local-transcribe");
+const btnTranscribe = document.getElementById("btn-transcribe");
+const transcribeStatus = document.getElementById("transcribe-status");
 
 // ---------- Gravação e transcrição ----------
 
+// No Electron o construtor SpeechRecognition existe, mas o serviço de fala do
+// Chrome não está disponível — usa-se a transcrição local (Whisper) no lugar.
+const isElectron = navigator.userAgent.includes("Electron");
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-if (!SpeechRecognition) speechUnsupported.classList.remove("hidden");
+const liveSpeechAvailable = Boolean(SpeechRecognition) && !isElectron;
+if (!liveSpeechAvailable) speechUnsupported.classList.remove("hidden");
 
 let recognition = null;
 let mediaRecorder = null;
 let mediaStream = null;
 let audioChunks = [];
+let lastAudioBlob = null;
 let recording = false;
 let timerInterval = null;
 let startedAt = 0;
@@ -48,7 +56,7 @@ function appendTranscript(text) {
 }
 
 function startRecognition() {
-  if (!SpeechRecognition) return;
+  if (!liveSpeechAvailable) return;
   recognition = new SpeechRecognition();
   recognition.lang = "pt-BR";
   recognition.continuous = true;
@@ -71,6 +79,17 @@ function startRecognition() {
     if (event.error === "not-allowed") {
       recordStatus.textContent = "Permissão de microfone negada.";
       stopRecording();
+    } else if (event.error === "network" || event.error === "service-not-allowed") {
+      // Serviço de fala indisponível: segue gravando; transcrição local ao final.
+      recognition.onend = null;
+      try {
+        recognition.stop();
+      } catch {
+        /* ignorar */
+      }
+      recognition = null;
+      speechUnsupported.classList.remove("hidden");
+      recordStatus.textContent = "Gravando (transcreva localmente ao final)…";
     }
     // "no-speech"/"aborted" são recuperados pelo onend.
   };
@@ -104,10 +123,12 @@ async function startRecording() {
   };
   mediaRecorder.onstop = () => {
     const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || "audio/webm" });
+    lastAudioBlob = blob;
     const url = URL.createObjectURL(blob);
     audioPlayer.src = url;
     audioDownload.href = url;
     audioPlayback.classList.remove("hidden");
+    localTranscribe.classList.remove("hidden");
   };
   mediaRecorder.start();
 
@@ -118,9 +139,9 @@ async function startRecording() {
 
   btnRecord.textContent = "⏹️ Parar gravação";
   btnRecord.classList.add("recording");
-  recordStatus.textContent = SpeechRecognition
+  recordStatus.textContent = liveSpeechAvailable
     ? "Gravando e transcrevendo…"
-    : "Gravando (sem transcrição automática)…";
+    : "Gravando (transcreva localmente ao final)…";
 
   startRecognition();
 }
@@ -151,6 +172,90 @@ function stopRecording() {
 btnRecord.addEventListener("click", () => {
   if (recording) stopRecording();
   else startRecording();
+});
+
+// ---------- Transcrição local (Whisper) ----------
+// Processa o áudio gravado no próprio dispositivo via transformers.js.
+// Usada no app desktop (sem serviço de fala do Chrome) e como alternativa
+// em qualquer navegador. O modelo (~80 MB) é baixado na primeira vez e
+// fica em cache; o áudio nunca sai do computador.
+
+const WHISPER_MODEL = "onnx-community/whisper-base";
+let transcriberPromise = null;
+
+function getTranscriber() {
+  if (!transcriberPromise) {
+    transcriberPromise = (async () => {
+      const { pipeline, env } = await import(
+        "/vendor/transformers/transformers.min.js"
+      );
+      // Runtime ONNX servido pelo próprio app (sem CDN); os pesos do modelo
+      // vêm do Hugging Face na primeira vez e ficam em cache no dispositivo.
+      env.backends.onnx.wasm.wasmPaths = "/vendor/ort/";
+      return pipeline("automatic-speech-recognition", WHISPER_MODEL, {
+        progress_callback: (info) => {
+          if (info.status === "progress" && info.total) {
+            const pct = Math.round((info.loaded / info.total) * 100);
+            transcribeStatus.textContent = `Baixando modelo de transcrição… ${pct}% (só na primeira vez)`;
+          }
+        },
+      });
+    })();
+    transcriberPromise.catch(() => {
+      transcriberPromise = null;
+    });
+  }
+  return transcriberPromise;
+}
+
+async function blobToMono16k(blob) {
+  const arrayBuffer = await blob.arrayBuffer();
+  const probe = new AudioContext();
+  const decoded = await probe.decodeAudioData(arrayBuffer);
+  probe.close();
+  const targetRate = 16000;
+  const offline = new OfflineAudioContext(
+    1,
+    Math.ceil(decoded.duration * targetRate),
+    targetRate
+  );
+  const source = offline.createBufferSource();
+  source.buffer = decoded;
+  source.connect(offline.destination);
+  source.start();
+  const rendered = await offline.startRendering();
+  return rendered.getChannelData(0);
+}
+
+btnTranscribe.addEventListener("click", async () => {
+  if (!lastAudioBlob) return;
+  btnTranscribe.disabled = true;
+  transcribeStatus.textContent = "Preparando transcrição…";
+  try {
+    const transcriber = await getTranscriber();
+    transcribeStatus.textContent = "Convertendo o áudio…";
+    const audio = await blobToMono16k(lastAudioBlob);
+    transcribeStatus.textContent = "Transcrevendo… (pode levar alguns minutos)";
+    const output = await transcriber(audio, {
+      language: "portuguese",
+      task: "transcribe",
+      chunk_length_s: 30,
+      stride_length_s: 5,
+    });
+    const text = (output.text || "").trim();
+    if (text) {
+      appendTranscript(text);
+      transcribeStatus.textContent = "Transcrição concluída. Revise o texto no passo 2.";
+    } else {
+      transcribeStatus.textContent = "Nenhuma fala reconhecida no áudio.";
+    }
+  } catch (err) {
+    console.error(err);
+    transcribeStatus.textContent =
+      "Falha na transcrição local (na primeira vez é preciso internet para baixar o modelo).";
+  } finally {
+    btnTranscribe.disabled = false;
+  }
 });
 
 // ---------- Geração da anamnese ----------
@@ -299,6 +404,9 @@ btnReset.addEventListener("click", () => {
   errorEl.classList.add("hidden");
   btnReset.classList.add("hidden");
   audioPlayback.classList.add("hidden");
+  localTranscribe.classList.add("hidden");
+  transcribeStatus.textContent = "";
+  lastAudioBlob = null;
   recordStatus.textContent = "";
   recordTimer.textContent = "";
 });

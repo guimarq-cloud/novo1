@@ -1,6 +1,6 @@
 import "dotenv/config";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import express from "express";
 import Anthropic from "@anthropic-ai/sdk";
 import { SYSTEM_PROMPT } from "./prompt.js";
@@ -128,11 +128,27 @@ app.post("/api/anamnese", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Especialista em Documentação Médica rodando em http://localhost:${PORT}`);
-  if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
-    console.warn(
-      "Aviso: ANTHROPIC_API_KEY não definida. Configure-a em .env (veja .env.example) ou autentique-se com `ant auth login`."
-    );
-  }
-});
+/** Inicia o servidor HTTP. Porta 0 escolhe uma porta livre (usado pelo app desktop). */
+export function startServer(port: number = PORT) {
+  return app.listen(port, () => {
+    if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
+      console.warn(
+        "Aviso: ANTHROPIC_API_KEY não definida. Configure-a em .env (veja .env.example) ou autentique-se com `ant auth login`."
+      );
+    }
+  });
+}
+
+export { app };
+
+// Escuta a porta apenas quando executado diretamente (node dist/server.js /
+// tsx src/server.ts); o app desktop importa startServer e escolhe a porta.
+const isMain =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isMain) {
+  startServer().on("listening", () => {
+    console.log(`Especialista em Documentação Médica rodando em http://localhost:${PORT}`);
+  });
+}
