@@ -1,8 +1,12 @@
 import "dotenv/config";
+import fs from "node:fs";
+import https from "node:https";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import express from "express";
 import Anthropic from "@anthropic-ai/sdk";
+import { generate as generateCert } from "selfsigned";
 import { SYSTEM_PROMPT } from "./prompt.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -10,6 +14,7 @@ const publicDir = path.resolve(here, "..", "public");
 
 const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-opus-5";
 const PORT = Number(process.env.PORT ?? 3000);
+const HTTPS_PORT = Number(process.env.HTTPS_PORT ?? 3443);
 
 const client = new Anthropic();
 
@@ -141,6 +146,49 @@ export function startServer(port: number = PORT) {
 
 export { app };
 
+function lanAddresses(): string[] {
+  return Object.values(os.networkInterfaces())
+    .flat()
+    .filter((i): i is os.NetworkInterfaceInfo => Boolean(i))
+    .filter((i) => i.family === "IPv4" && !i.internal)
+    .map((i) => i.address);
+}
+
+/**
+ * Certificado autoassinado para acesso pelo celular na mesma rede
+ * (navegadores móveis exigem HTTPS para liberar o microfone). Gerado uma
+ * vez e persistido em .certs/.
+ */
+async function ensureCert(): Promise<{ key: string; cert: string }> {
+  const certDir = path.resolve(here, "..", ".certs");
+  const keyPath = path.join(certDir, "key.pem");
+  const certPath = path.join(certDir, "cert.pem");
+  if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
+    return { key: fs.readFileSync(keyPath, "utf8"), cert: fs.readFileSync(certPath, "utf8") };
+  }
+  const altNames = [
+    { type: 2 as const, value: "localhost" },
+    ...lanAddresses().map((ip) => ({ type: 7 as const, ip })),
+  ];
+  const notAfterDate = new Date();
+  notAfterDate.setFullYear(notAfterDate.getFullYear() + 10);
+  const pems = await generateCert([{ name: "commonName", value: "anamnese.local" }], {
+    notAfterDate,
+    keySize: 2048,
+    extensions: [{ name: "subjectAltName", altNames }],
+  });
+  fs.mkdirSync(certDir, { recursive: true });
+  fs.writeFileSync(keyPath, pems.private);
+  fs.writeFileSync(certPath, pems.cert);
+  return { key: pems.private, cert: pems.cert };
+}
+
+/** Servidor HTTPS para uso pelo celular (PWA) na mesma rede Wi-Fi. */
+export async function startHttpsServer(port: number = HTTPS_PORT) {
+  const { key, cert } = await ensureCert();
+  return https.createServer({ key, cert }, app).listen(port);
+}
+
 // Escuta a porta apenas quando executado diretamente (node dist/server.js /
 // tsx src/server.ts); o app desktop importa startServer e escolhe a porta.
 const isMain =
@@ -151,4 +199,19 @@ if (isMain) {
   startServer().on("listening", () => {
     console.log(`Especialista em Documentação Médica rodando em http://localhost:${PORT}`);
   });
+  if (!process.env.NO_HTTPS) {
+    startHttpsServer()
+      .then(() => {
+        console.log("\nNo celular (mesma rede Wi-Fi), acesse e aceite o aviso de certificado:");
+        for (const ip of lanAddresses()) {
+          console.log(`  https://${ip}:${HTTPS_PORT}`);
+        }
+        console.log(
+          'Depois use "Adicionar à Tela de Início" para instalar o app com ícone.\n'
+        );
+      })
+      .catch((err) => {
+        console.warn("HTTPS não iniciado (defina NO_HTTPS=1 para silenciar):", err.message);
+      });
+  }
 }

@@ -395,6 +395,14 @@ btnCopy.addEventListener("click", async () => {
   setTimeout(() => (btnCopy.textContent = "📄 Copiar anamnese"), 2000);
 });
 
+// ---------- PWA ----------
+
+if ("serviceWorker" in navigator && window.isSecureContext) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {
+    /* cache offline é opcional; o app funciona sem ele */
+  });
+}
+
 btnReset.addEventListener("click", () => {
   conversation = [];
   transcriptEl.value = "";

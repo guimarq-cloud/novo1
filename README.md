@@ -79,6 +79,22 @@ Notas do Windows:
 - **Transcrição local**: igual ao macOS — botão "Transcrever gravação (local)", com download único do modelo (~80 MB) na primeira vez.
 - O build do Windows deve ser feito no próprio Windows (no macOS/Linux o electron-builder exigiria wine para gravar o ícone no executável).
 
+## Aplicativo no celular (PWA)
+
+O app é um **PWA instalável**: no celular ele ganha ícone na tela de início e abre em tela cheia, como app nativo — usando o servidor que roda no seu computador, na mesma rede Wi-Fi.
+
+1. No computador, rode o servidor (`npm run dev` ou `npm start`). O terminal mostra o endereço para o celular, ex.: `https://192.168.0.10:3443`.
+2. No celular (mesma rede Wi-Fi), abra esse endereço no navegador e **aceite o aviso de certificado** (é o certificado local gerado pelo próprio app; o HTTPS é exigido pelos navegadores móveis para liberar o microfone).
+3. Instale com ícone:
+   - **Android (Chrome)**: menu ⋮ → "Adicionar à tela inicial" (ou "Instalar app").
+   - **iPhone (Safari)**: botão Compartilhar → "Adicionar à Tela de Início".
+4. Abra pelo ícone: gravação, transcrição e anamnese funcionam como no computador (no Android Chrome há transcrição ao vivo; no iPhone use a transcrição local após gravar).
+
+Notas:
+
+- Computador e celular precisam estar na mesma rede, com o servidor rodando. Para usar fora de casa/consultório, hospede o servidor em um serviço com HTTPS público (Render, Fly.io, Railway etc.) — aí o PWA funciona de qualquer lugar, sem aviso de certificado.
+- A porta HTTPS é configurável com `HTTPS_PORT` (padrão 3443); `NO_HTTPS=1` desativa. O certificado fica em `.certs/` (gerado na primeira execução).
+
 ## Notas
 
 - No navegador, a transcrição ao vivo usa a Web Speech API (Chrome e Edge). Nesse modo o áudio do reconhecimento é processado por serviço do navegador — avalie a política de privacidade aplicável ao seu contexto clínico antes de usar com pacientes reais. A alternativa "Transcrever gravação (local)" processa tudo no dispositivo e também funciona em qualquer navegador.

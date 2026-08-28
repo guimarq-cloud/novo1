@@ -4,3 +4,4 @@ release/
 public/vendor/
 .env
 *.log
+.certs/
