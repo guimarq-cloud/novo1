@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Especialista em Documentação Médica</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>🩺 Especialista em Documentação Médica</h1>
+    <p>Grave a consulta, revise a transcrição e gere uma anamnese formal estruturada — fiel ao que foi dito, sem dados inventados.</p>
+  </header>
+
+  <main>
+    <!-- Passo 1: Gravação e transcrição -->
+    <section class="card">
+      <h2><span class="step">1</span> Gravar a consulta</h2>
+      <div class="controls">
+        <button id="btn-record" class="primary">🎙️ Iniciar gravação</button>
+        <span id="record-status" class="status"></span>
+        <span id="record-timer" class="timer"></span>
+      </div>
+      <p id="speech-unsupported" class="warn hidden">
+        Este navegador não oferece reconhecimento de fala (use Chrome ou Edge).
+        Você ainda pode gravar o áudio e digitar/colar a transcrição abaixo.
+      </p>
+      <div id="audio-playback" class="hidden">
+        <audio id="audio-player" controls></audio>
+        <a id="audio-download" download="consulta.webm">⬇️ Baixar áudio</a>
+      </div>
+    </section>
+
+    <!-- Passo 2: Transcrição -->
+    <section class="card">
+      <h2><span class="step">2</span> Revisar a transcrição</h2>
+      <p class="hint">A transcrição aparece aqui ao vivo durante a gravação. Revise e corrija antes de gerar a anamnese — ou cole uma transcrição pronta.</p>
+      <div id="interim" class="interim"></div>
+      <textarea id="transcript" rows="10"
+        placeholder="Ex.:&#10;Médico: Boa tarde! O que traz a senhora aqui?&#10;Paciente: Ah doutor, é uma queimação na boca do estômago, já tem umas duas semanas..."></textarea>
+    </section>
+
+    <!-- Passo 3: Anamnese -->
+    <section class="card">
+      <h2><span class="step">3</span> Gerar a anamnese</h2>
+      <div class="controls">
+        <button id="btn-generate" class="primary">📋 Gerar anamnese</button>
+        <button id="btn-reset" class="secondary hidden">🔄 Nova consulta</button>
+      </div>
+      <div id="error" class="error hidden"></div>
+      <div id="result-wrap" class="hidden">
+        <div id="result" class="result"></div>
+        <button id="btn-copy" class="secondary">📄 Copiar anamnese</button>
+      </div>
+      <div id="followup" class="followup hidden">
+        <p class="hint">O especialista levantou dúvidas antes de finalizar. Responda abaixo para receber a versão final:</p>
+        <textarea id="followup-text" rows="3" placeholder="Ex.: 1. O início foi há uma semana. 2. Quem relatou a alergia foi a paciente."></textarea>
+        <button id="btn-followup" class="primary">Enviar respostas</button>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Ferramenta de apoio à documentação. A anamnese gerada deve ser revisada pelo profissional responsável antes de ir ao prontuário. Nenhuma conclusão clínica é emitida pela ferramenta.</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
