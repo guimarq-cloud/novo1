@@ -57,6 +57,28 @@ Notas do desktop:
 - **Transcrição no desktop**: o serviço de fala do Chrome não existe dentro do Electron; o app usa **transcrição local (Whisper via transformers.js)** — grave normalmente e clique em "Transcrever gravação (local)". Na primeira vez, o modelo (~80 MB) é baixado e fica em cache; o áudio nunca sai do computador. Para maior acurácia, troque `onnx-community/whisper-base` por `onnx-community/whisper-small` em `public/app.js` (download maior).
 - **Build sem assinatura**: sem certificado de desenvolvedor Apple, o build sai não assinado — na primeira abertura, clique com o botão direito no app → "Abrir".
 
+## Aplicativo de desktop (Windows)
+
+Em um PC com Windows e [Node.js 20+](https://nodejs.org) instalado:
+
+```powershell
+git clone https://github.com/guimarq-cloud/novo1.git
+cd novo1
+git checkout claude/medical-documentation-specialist-kwyxz1
+npm install
+npm run dist:win
+```
+
+O instalador sai em `release/AnamneseMedica-Setup-1.0.0.exe`. Dois cliques nele instalam o app e **criam automaticamente o atalho "Anamnese Médica" na área de trabalho** (instalação em um clique, sem assistente).
+
+Notas do Windows:
+
+- **SmartScreen**: por não ser assinado, o Windows pode exibir "O Windows protegeu o computador" — clique em "Mais informações" → "Executar assim mesmo".
+- **Chave da API**: crie o arquivo `%APPDATA%\Anamnese Médica\.env` com a linha `ANTHROPIC_API_KEY=sk-ant-...` (o app mostra o caminho exato num aviso quando a chave não é encontrada).
+- **Microfone**: se a gravação não iniciar, verifique Configurações → Privacidade e segurança → Microfone → "Permitir que aplicativos da área de trabalho acessem seu microfone".
+- **Transcrição local**: igual ao macOS — botão "Transcrever gravação (local)", com download único do modelo (~80 MB) na primeira vez.
+- O build do Windows deve ser feito no próprio Windows (no macOS/Linux o electron-builder exigiria wine para gravar o ícone no executável).
+
 ## Notas
 
 - No navegador, a transcrição ao vivo usa a Web Speech API (Chrome e Edge). Nesse modo o áudio do reconhecimento é processado por serviço do navegador — avalie a política de privacidade aplicável ao seu contexto clínico antes de usar com pacientes reais. A alternativa "Transcrever gravação (local)" processa tudo no dispositivo e também funciona em qualquer navegador.

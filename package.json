@@ -11,7 +11,8 @@
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "app": "npm run build && electron .",
-    "dist:mac": "npm run build && electron-builder --mac"
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",
@@ -59,6 +60,23 @@
       "extendInfo": {
         "NSMicrophoneUsageDescription": "O aplicativo usa o microfone para gravar a consulta e transcrevê-la."
       }
+    },
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "createDesktopShortcut": "always",
+      "shortcutName": "Anamnese Médica",
+      "artifactName": "AnamneseMedica-Setup-${version}.${ext}"
     }
   }
 }
