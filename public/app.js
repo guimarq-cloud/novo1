@@ -299,6 +299,10 @@ async function requestAnamnese() {
       body: JSON.stringify({ messages: conversation }),
     });
 
+    if (response.status === 401) {
+      showLogin();
+      throw new Error("Sessão expirada ou não autenticada. Informe a senha de acesso.");
+    }
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
       throw new Error(data.error || `Erro ${response.status}`);
@@ -393,6 +397,58 @@ btnCopy.addEventListener("click", async () => {
     btnCopy.textContent = "Falha ao copiar";
   }
   setTimeout(() => (btnCopy.textContent = "📄 Copiar anamnese"), 2000);
+});
+
+// ---------- Autenticação (hospedagem com senha) ----------
+
+const loginCard = document.getElementById("login-card");
+const loginPassword = document.getElementById("login-password");
+const btnLogin = document.getElementById("btn-login");
+const loginError = document.getElementById("login-error");
+
+function showLogin() {
+  loginCard.classList.remove("hidden");
+  loginCard.scrollIntoView({ behavior: "smooth", block: "start" });
+  loginPassword.focus();
+}
+
+async function checkAuth() {
+  try {
+    const res = await fetch("/api/auth-status");
+    const status = await res.json();
+    if (status.required && !status.authenticated) showLogin();
+  } catch {
+    /* servidor local sem senha ou offline: segue sem login */
+  }
+}
+checkAuth();
+
+async function doLogin() {
+  loginError.classList.add("hidden");
+  btnLogin.disabled = true;
+  try {
+    const res = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: loginPassword.value }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "Falha no login.");
+    }
+    loginCard.classList.add("hidden");
+    loginPassword.value = "";
+  } catch (err) {
+    loginError.textContent = err.message;
+    loginError.classList.remove("hidden");
+  } finally {
+    btnLogin.disabled = false;
+  }
+}
+
+btnLogin.addEventListener("click", doLogin);
+loginPassword.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") doLogin();
 });
 
 // ---------- PWA ----------

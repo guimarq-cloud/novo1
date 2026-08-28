@@ -20,6 +20,17 @@
   </header>
 
   <main>
+    <!-- Acesso protegido (aparece só quando o servidor exige senha) -->
+    <section id="login-card" class="card login hidden">
+      <h2>🔒 Acesso protegido</h2>
+      <p class="hint">Este servidor exige a senha de acesso configurada na hospedagem.</p>
+      <div class="controls">
+        <input id="login-password" type="password" placeholder="Senha de acesso" autocomplete="current-password" />
+        <button id="btn-login" class="primary">Entrar</button>
+      </div>
+      <div id="login-error" class="error hidden"></div>
+    </section>
+
     <!-- Passo 1: Gravação e transcrição -->
     <section class="card">
       <h2><span class="step">1</span> Gravar a consulta</h2>

@@ -1,0 +1,8 @@
+node_modules
+dist
+release
+public/vendor
+.certs
+.env
+.git
+*.log

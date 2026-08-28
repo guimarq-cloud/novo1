@@ -1,4 +1,5 @@
 import "dotenv/config";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import https from "node:https";
 import os from "node:os";
@@ -19,8 +20,84 @@ const HTTPS_PORT = Number(process.env.HTTPS_PORT ?? 3443);
 const client = new Anthropic();
 
 const app = express();
+// Necessário atrás de proxies de hospedagem (Render, Fly etc.) para que
+// req.secure reflita o HTTPS terminado na borda.
+app.set("trust proxy", 1);
 app.use(express.json({ limit: "2mb" }));
 app.use(express.static(publicDir));
+
+// ---------- Autenticação por senha (para hospedagem na internet) ----------
+// Sem APP_PASSWORD definida (uso local/desktop), nenhuma senha é exigida.
+// Com APP_PASSWORD, /api/anamnese passa a exigir o cookie de sessão emitido
+// por /api/login — protegendo a chave da API contra uso por estranhos.
+
+const APP_PASSWORD = process.env.APP_PASSWORD ?? "";
+const authRequired = APP_PASSWORD.length > 0;
+const AUTH_COOKIE = "anamnese_auth";
+const AUTH_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 dias
+const authKey = crypto
+  .createHash("sha256")
+  .update(`anamnese-auth-key:${APP_PASSWORD}`)
+  .digest();
+
+function signToken(expiresAt: number): string {
+  const payload = String(expiresAt);
+  const mac = crypto.createHmac("sha256", authKey).update(payload).digest("base64url");
+  return `${payload}.${mac}`;
+}
+
+function verifyToken(token: string | undefined): boolean {
+  if (!token) return false;
+  const [payload, mac] = token.split(".");
+  if (!payload || !mac) return false;
+  const expected = crypto.createHmac("sha256", authKey).update(payload).digest("base64url");
+  const given = Buffer.from(mac);
+  const wanted = Buffer.from(expected);
+  if (given.length !== wanted.length || !crypto.timingSafeEqual(given, wanted)) return false;
+  return Number(payload) > Date.now();
+}
+
+function getCookie(req: express.Request, name: string): string | undefined {
+  const header = req.headers.cookie;
+  if (!header) return undefined;
+  for (const part of header.split(";")) {
+    const [key, ...rest] = part.trim().split("=");
+    if (key === name) return rest.join("=");
+  }
+  return undefined;
+}
+
+function isAuthenticated(req: express.Request): boolean {
+  return !authRequired || verifyToken(getCookie(req, AUTH_COOKIE));
+}
+
+app.get("/api/auth-status", (req, res) => {
+  res.json({ required: authRequired, authenticated: isAuthenticated(req) });
+});
+
+app.post("/api/login", (req, res) => {
+  if (!authRequired) {
+    res.json({ ok: true });
+    return;
+  }
+  const body = req.body as { password?: unknown };
+  const given = crypto
+    .createHash("sha256")
+    .update(String(typeof body.password === "string" ? body.password : ""))
+    .digest();
+  const wanted = crypto.createHash("sha256").update(APP_PASSWORD).digest();
+  if (!crypto.timingSafeEqual(given, wanted)) {
+    res.status(401).json({ error: "Senha incorreta." });
+    return;
+  }
+  const expiresAt = Date.now() + AUTH_TTL_MS;
+  const secure = req.secure ? "; Secure" : "";
+  res.setHeader(
+    "Set-Cookie",
+    `${AUTH_COOKIE}=${signToken(expiresAt)}; Path=/; Max-Age=${Math.floor(AUTH_TTL_MS / 1000)}; HttpOnly; SameSite=Lax${secure}`
+  );
+  res.json({ ok: true });
+});
 
 interface ChatTurn {
   role: "user" | "assistant";
@@ -43,6 +120,10 @@ function isValidTurn(t: unknown): t is ChatTurn {
  * streaming.
  */
 app.post("/api/anamnese", async (req, res) => {
+  if (!isAuthenticated(req)) {
+    res.status(401).json({ error: "Não autenticado. Informe a senha de acesso." });
+    return;
+  }
   const body = req.body as { messages?: unknown };
   const rawMessages = Array.isArray(body.messages) ? body.messages : [];
   const turns = rawMessages.filter(isValidTurn);

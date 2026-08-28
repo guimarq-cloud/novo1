@@ -1,0 +1,18 @@
+# Blueprint do Render (https://render.com) — publica o app na internet.
+# No painel do Render: New → Blueprint → conectar este repositório.
+services:
+  - type: web
+    name: anamnese-medica
+    runtime: node
+    plan: free
+    branch: claude/medical-documentation-specialist-kwyxz1
+    buildCommand: npm ci && npm run build
+    startCommand: node dist/server.js
+    healthCheckPath: /
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false # preenchida no painel, nunca vai para o repositório
+      - key: APP_PASSWORD
+        sync: false # senha de acesso ao app, definida no painel
+      - key: NO_HTTPS
+        value: "1" # o Render já entrega HTTPS na borda

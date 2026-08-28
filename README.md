@@ -95,6 +95,25 @@ Notas:
 - Computador e celular precisam estar na mesma rede, com o servidor rodando. Para usar fora de casa/consultório, hospede o servidor em um serviço com HTTPS público (Render, Fly.io, Railway etc.) — aí o PWA funciona de qualquer lugar, sem aviso de certificado.
 - A porta HTTPS é configurável com `HTTPS_PORT` (padrão 3443); `NO_HTTPS=1` desativa. O certificado fica em `.certs/` (gerado na primeira execução).
 
+## Publicando na internet (Render) — acesso de qualquer aparelho, sem PC ligado
+
+Com o app hospedado na nuvem, você acessa de qualquer computador ou celular, em qualquer rede, com suas máquinas desligadas. O repositório já traz o blueprint (`render.yaml`); o passo a passo leva ~10 minutos:
+
+1. Crie uma conta gratuita em https://render.com (pode entrar com a conta do GitHub).
+2. No painel: **New → Blueprint** → conecte o repositório `guimarq-cloud/novo1`. O Render lê o `render.yaml` sozinho.
+3. Ele vai pedir os dois valores secretos:
+   - `ANTHROPIC_API_KEY` — sua chave da API (sk-ant-...).
+   - `APP_PASSWORD` — **a senha de acesso ao app**. Invente uma senha forte; sem ela qualquer pessoa na internet poderia usar sua chave.
+4. Clique em **Apply/Deploy** e aguarde o build (alguns minutos). O endereço final fica algo como `https://anamnese-medica.onrender.com`.
+5. Abra o endereço, informe a senha (fica salva por 30 dias no aparelho) e use normalmente. No celular, instale o ícone: Chrome → ⋮ → "Instalar app"; Safari → Compartilhar → "Adicionar à Tela de Início". Sem aviso de certificado — o HTTPS é verdadeiro.
+
+Notas:
+
+- **Plano Free do Render**: o servidor hiberna após ~15 min sem uso; a primeira visita seguinte demora ~30–60 s para acordar. O plano pago (~US$ 7/mês) elimina isso.
+- A autenticação só é exigida quando `APP_PASSWORD` está definida — o uso local e o app de desktop continuam sem senha.
+- Para outras plataformas (Fly.io, Railway, Cloud Run, VPS), use o `Dockerfile` incluído; defina `ANTHROPIC_API_KEY`, `APP_PASSWORD` e `NO_HTTPS=1`.
+- O servidor não armazena consultas: o áudio nunca sai do aparelho (transcrição no navegador) e a transcrição em texto só transita até a API da Anthropic.
+
 ## Notas
 
 - No navegador, a transcrição ao vivo usa a Web Speech API (Chrome e Edge). Nesse modo o áudio do reconhecimento é processado por serviço do navegador — avalie a política de privacidade aplicável ao seu contexto clínico antes de usar com pacientes reais. A alternativa "Transcrever gravação (local)" processa tudo no dispositivo e também funciona em qualquer navegador.

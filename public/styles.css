@@ -129,16 +129,20 @@ button.secondary:hover { background: #e2eaee; }
   margin-bottom: 0.4rem;
 }
 
-textarea {
-  width: 100%;
+textarea,
+input[type="password"] {
   font: inherit;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.75rem;
-  resize: vertical;
   background: #fcfdfe;
 }
-textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+textarea { width: 100%; resize: vertical; }
+input[type="password"] { flex: 1; min-width: 12rem; }
+textarea:focus,
+input[type="password"]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+.login { border-left: 4px solid var(--accent); }
 
 .error {
   background: #fdeceb;
