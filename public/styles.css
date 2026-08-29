@@ -144,6 +144,37 @@ input[type="password"]:focus { outline: 2px solid var(--accent); outline-offset:
 
 .login { border-left: 4px solid var(--accent); }
 
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.9rem;
+  padding: 0.65rem 0.9rem;
+  background: #eef6f4;
+  border: 1px solid #cde3de;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  color: var(--accent-dark);
+}
+
+.spinner {
+  width: 1.05rem;
+  height: 1.05rem;
+  border: 2.5px solid #bcd9d3;
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  flex-shrink: 0;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 3s; }
+}
+
+.progress .timer { margin-left: auto; }
+
 .error {
   background: #fdeceb;
   border: 1px solid #f3c1bd;

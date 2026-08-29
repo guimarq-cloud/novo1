@@ -130,7 +130,11 @@ function isValidTurn(t: unknown): t is ChatTurn {
  * servidores modestos pode levar vários minutos, e o fetch padrão aborta
  * aos 5 min (derrubando o carregamento junto).
  */
-function postOllama(apiPath: string, payload: unknown): Promise<http.IncomingMessage> {
+function postOllama(
+  apiPath: string,
+  payload: unknown,
+  onRequest?: (req: http.ClientRequest) => void
+): Promise<http.IncomingMessage> {
   return new Promise((resolve, reject) => {
     const url = new URL(apiPath, OLLAMA_URL);
     const req = http.request(
@@ -145,7 +149,39 @@ function postOllama(apiPath: string, payload: unknown): Promise<http.IncomingMes
     );
     req.on("error", reject);
     req.end(JSON.stringify(payload));
+    onRequest?.(req);
   });
+}
+
+/** GET simples no Ollama, com timeout curto (usado só para diagnóstico). */
+function getOllama(apiPath: string, timeoutMs = 4000): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const url = new URL(apiPath, OLLAMA_URL);
+    const req = http.get(
+      { hostname: url.hostname, port: url.port || 80, path: url.pathname, timeout: timeoutMs },
+      async (res) => {
+        let body = "";
+        for await (const chunk of res) body += chunk;
+        try {
+          resolve(JSON.parse(body));
+        } catch {
+          reject(new Error("Resposta inválida do Ollama."));
+        }
+      }
+    );
+    req.on("timeout", () => req.destroy(new Error("timeout")));
+    req.on("error", reject);
+  });
+}
+
+/** Informa se o modelo já está carregado na memória do servidor. */
+async function isModelLoaded(): Promise<boolean> {
+  try {
+    const ps = (await getOllama("/api/ps")) as { models?: { name?: string }[] };
+    return (ps.models ?? []).some((m) => m.name?.startsWith(OLLAMA_MODEL.split(":")[0]));
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -156,20 +192,33 @@ function postOllama(apiPath: string, payload: unknown): Promise<http.IncomingMes
  */
 async function streamOllama(
   turns: ChatTurn[],
-  send: (payload: Record<string, unknown>) => void
+  send: (payload: Record<string, unknown>) => void,
+  onRequest?: (req: http.ClientRequest) => void
 ): Promise<void> {
+  send({
+    type: "status",
+    stage: "conectando",
+    message: (await isModelLoaded())
+      ? "Modelo pronto. Enviando a transcrição…"
+      : "Carregando o modelo na memória — na primeira geração isso pode levar alguns minutos.",
+  });
+
   let response: http.IncomingMessage;
   try {
-    response = await postOllama("/api/chat", {
-      model: OLLAMA_MODEL,
-      stream: true,
-      think: false,
-      keep_alive: -1,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        ...turns.map((t) => ({ role: t.role, content: t.content })),
-      ],
-    });
+    response = await postOllama(
+      "/api/chat",
+      {
+        model: OLLAMA_MODEL,
+        stream: true,
+        think: false,
+        keep_alive: -1,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          ...turns.map((t) => ({ role: t.role, content: t.content })),
+        ],
+      },
+      onRequest
+    );
   } catch {
     throw new Error(
       `Não foi possível conectar ao Ollama em ${OLLAMA_URL}. Verifique se o serviço está no ar (docker compose --profile nacional up -d).`
@@ -185,6 +234,7 @@ async function streamOllama(
   }
 
   let buffer = "";
+  let firstToken = true;
   for await (const chunk of response) {
     buffer += chunk.toString("utf8");
     const lines = buffer.split("\n");
@@ -198,7 +248,13 @@ async function streamOllama(
       };
       if (parsed.error) throw new Error(`Erro do Ollama: ${parsed.error}`);
       const text = parsed.message?.content;
-      if (typeof text === "string" && text.length > 0) send({ type: "delta", text });
+      if (typeof text === "string" && text.length > 0) {
+        if (firstToken) {
+          firstToken = false;
+          send({ type: "status", stage: "gerando", message: "Escrevendo a anamnese…" });
+        }
+        send({ type: "delta", text });
+      }
       if (parsed.done) {
         response.destroy();
         return;
@@ -251,15 +307,29 @@ app.post("/api/anamnese", async (req, res) => {
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
+  // Impede que proxies segurem a resposta em buffer (o streaming morreria).
+  res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
 
   const send = (payload: Record<string, unknown>) => {
     res.write(`data: ${JSON.stringify(payload)}\n\n`);
   };
 
+  // Pulso a cada 10 s: mantém a conexão viva atrás de proxies e alimenta o
+  // cronômetro da interface enquanto o modelo ainda não produziu texto.
+  const startedAt = Date.now();
+  const heartbeat = setInterval(() => {
+    send({ type: "heartbeat", elapsed: Math.round((Date.now() - startedAt) / 1000) });
+  }, 10_000);
+
   if (LLM_PROVIDER === "ollama") {
+    // Se o usuário cancelar ou fechar a aba, aborta a geração no Ollama em
+    // vez de deixar o servidor gastando CPU à toa.
+    let ollamaRequest: http.ClientRequest | undefined;
+    const onClose = () => ollamaRequest?.destroy();
+    res.on("close", onClose);
     try {
-      await streamOllama(turns, send);
+      await streamOllama(turns, send, (r) => (ollamaRequest = r));
       send({ type: "done" });
     } catch (error) {
       console.error("Erro em /api/anamnese (ollama):", error);
@@ -271,6 +341,8 @@ app.post("/api/anamnese", async (req, res) => {
             : "Erro inesperado ao gerar a anamnese no modelo local.",
       });
     } finally {
+      clearInterval(heartbeat);
+      res.off("close", onClose);
       res.end();
     }
     return;
@@ -300,7 +372,14 @@ app.post("/api/anamnese", async (req, res) => {
       messages,
     });
 
-    stream.on("text", (delta) => send({ type: "delta", text: delta }));
+    let firstToken = true;
+    stream.on("text", (delta) => {
+      if (firstToken) {
+        firstToken = false;
+        send({ type: "status", stage: "gerando", message: "Escrevendo a anamnese…" });
+      }
+      send({ type: "delta", text: delta });
+    });
 
     const finalMessage = await stream.finalMessage();
 
@@ -342,8 +421,36 @@ app.post("/api/anamnese", async (req, res) => {
     console.error("Erro em /api/anamnese:", error);
     send({ type: "error", message });
   } finally {
+    clearInterval(heartbeat);
     res.end();
   }
+});
+
+/**
+ * Diagnóstico pelo navegador: provedor em uso, modelo, se ele já está
+ * residente na memória e a folga de RAM do servidor.
+ */
+app.get("/api/health", async (_req, res) => {
+  const totalGb = +(os.totalmem() / 1024 ** 3).toFixed(1);
+  const freeGb = +(os.freemem() / 1024 ** 3).toFixed(1);
+  const health: Record<string, unknown> = {
+    provider: LLM_PROVIDER,
+    model: LLM_PROVIDER === "ollama" ? OLLAMA_MODEL : MODEL,
+    ramTotalGb: totalGb,
+    ramFreeGb: freeGb,
+  };
+  if (LLM_PROVIDER === "ollama") {
+    health.modelLoaded = await isModelLoaded();
+    try {
+      const tags = (await getOllama("/api/tags")) as { models?: { name?: string }[] };
+      health.ollamaOnline = true;
+      health.modelDownloaded = (tags.models ?? []).some((m) => m.name === OLLAMA_MODEL);
+    } catch {
+      health.ollamaOnline = false;
+      health.modelDownloaded = false;
+    }
+  }
+  res.json(health);
 });
 
 /** Inicia o servidor HTTP. Porta 0 escolhe uma porta livre (usado pelo app desktop). */

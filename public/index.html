@@ -68,7 +68,13 @@
       <h2><span class="step">3</span> Gerar a anamnese</h2>
       <div class="controls">
         <button id="btn-generate" class="primary">📋 Gerar anamnese</button>
+        <button id="btn-cancel" class="secondary hidden">✖️ Cancelar</button>
         <button id="btn-reset" class="secondary hidden">🔄 Nova consulta</button>
+      </div>
+      <div id="progress" class="progress hidden">
+        <span class="spinner" aria-hidden="true"></span>
+        <span id="progress-text">Iniciando…</span>
+        <span id="progress-timer" class="timer"></span>
       </div>
       <div id="error" class="error hidden"></div>
       <div id="result-wrap" class="hidden">

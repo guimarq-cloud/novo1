@@ -23,6 +23,10 @@ const btnFollowup = document.getElementById("btn-followup");
 const localTranscribe = document.getElementById("local-transcribe");
 const btnTranscribe = document.getElementById("btn-transcribe");
 const transcribeStatus = document.getElementById("transcribe-status");
+const btnCancel = document.getElementById("btn-cancel");
+const progressEl = document.getElementById("progress");
+const progressText = document.getElementById("progress-text");
+const progressTimer = document.getElementById("progress-timer");
 
 // ---------- Gravação e transcrição ----------
 
@@ -283,6 +287,45 @@ function hasPendingQuestions(text) {
   return /DÚVIDAS ANTES DE FINALIZAR|\[PENDENTE/i.test(text);
 }
 
+// ---------- Indicador de progresso ----------
+
+let progressInterval = null;
+let progressStartedAt = 0;
+let generationController = null;
+
+function startProgress(message) {
+  progressStartedAt = Date.now();
+  progressText.textContent = message;
+  progressTimer.textContent = "00:00";
+  progressEl.classList.remove("hidden");
+  btnCancel.classList.remove("hidden");
+  clearInterval(progressInterval);
+  progressInterval = setInterval(() => {
+    const s = Math.floor((Date.now() - progressStartedAt) / 1000);
+    const mm = String(Math.floor(s / 60)).padStart(2, "0");
+    const ss = String(s % 60).padStart(2, "0");
+    progressTimer.textContent = `${mm}:${ss}`;
+  }, 1000);
+}
+
+function updateProgress(message) {
+  progressText.textContent = message;
+}
+
+function stopProgress() {
+  clearInterval(progressInterval);
+  progressInterval = null;
+  progressEl.classList.add("hidden");
+  btnCancel.classList.add("hidden");
+}
+
+btnCancel.addEventListener("click", () => {
+  if (generationController) {
+    generationController.abort();
+    updateProgress("Cancelando…");
+  }
+});
+
 async function requestAnamnese() {
   errorEl.classList.add("hidden");
   followupEl.classList.add("hidden");
@@ -290,12 +333,16 @@ async function requestAnamnese() {
   resultEl.textContent = "";
   btnGenerate.disabled = true;
   btnFollowup.disabled = true;
+  startProgress("Enviando a transcrição ao servidor…");
+  generationController = new AbortController();
 
   let fullText = "";
   try {
     const response = await fetch("/api/anamnese", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      signal: generationController.signal,
       body: JSON.stringify({ messages: conversation }),
     });
 
@@ -326,6 +373,16 @@ async function requestAnamnese() {
         if (payload.type === "delta") {
           fullText += payload.text;
           renderResult(fullText);
+        } else if (payload.type === "status") {
+          updateProgress(payload.message);
+        } else if (payload.type === "heartbeat") {
+          // Sinal de vida do servidor: se o texto ainda não começou, avisa
+          // que a espera é do modelo, não um travamento.
+          if (!fullText && payload.elapsed >= 30) {
+            updateProgress(
+              `Modelo processando no servidor (${payload.elapsed}s). Em servidores sem placa de vídeo isso leva alguns minutos.`
+            );
+          }
         } else if (payload.type === "error") {
           throw new Error(payload.message);
         }
@@ -341,7 +398,12 @@ async function requestAnamnese() {
     }
     btnReset.classList.remove("hidden");
   } catch (err) {
-    showError(err.message || "Erro ao gerar a anamnese.");
+    const cancelled = err.name === "AbortError";
+    showError(
+      cancelled
+        ? "Geração cancelada. O texto parcial acima não foi salvo."
+        : err.message || "Erro ao gerar a anamnese."
+    );
     if (fullText) {
       // Mantém o parcial visível, mas não o registra como turno concluído.
       renderResult(fullText);
@@ -353,6 +415,8 @@ async function requestAnamnese() {
       conversation.pop();
     }
   } finally {
+    stopProgress();
+    generationController = null;
     btnGenerate.disabled = false;
     btnFollowup.disabled = false;
   }
@@ -410,18 +474,53 @@ function showLogin() {
   loginCard.classList.remove("hidden");
   loginCard.scrollIntoView({ behavior: "smooth", block: "start" });
   loginPassword.focus();
+  // Sem sessão válida a geração falharia com 401: bloqueia o botão e diz
+  // por quê, em vez de deixar o usuário clicar e receber erro.
+  btnGenerate.disabled = true;
+  btnGenerate.title = "Informe a senha de acesso para gerar a anamnese.";
+}
+
+function hideLogin() {
+  loginCard.classList.add("hidden");
+  btnGenerate.disabled = false;
+  btnGenerate.title = "";
 }
 
 async function checkAuth() {
   try {
-    const res = await fetch("/api/auth-status");
+    const res = await fetch("/api/auth-status", { credentials: "same-origin" });
     const status = await res.json();
     if (status.required && !status.authenticated) showLogin();
+    else hideLogin();
   } catch {
     /* servidor local sem senha ou offline: segue sem login */
   }
 }
 checkAuth();
+
+// Estado da IA ao abrir a página: avisa se o modelo local ainda está
+// aquecendo ou se o serviço está fora do ar, antes de o usuário tentar.
+async function checkHealth() {
+  try {
+    const res = await fetch("/api/health", { credentials: "same-origin" });
+    const health = await res.json();
+    if (health.provider !== "ollama") return;
+    if (!health.ollamaOnline) {
+      showError("O serviço de IA local está fora do ar no servidor. Avise o responsável técnico.");
+    } else if (!health.modelDownloaded) {
+      showError(`O modelo ${health.model} ainda não foi baixado no servidor.`);
+    } else if (!health.modelLoaded) {
+      progressText.textContent =
+        "O modelo de IA está sendo carregado no servidor — a primeira geração pode demorar.";
+      progressTimer.textContent = "";
+      progressEl.classList.remove("hidden");
+      setTimeout(() => progressEl.classList.add("hidden"), 10000);
+    }
+  } catch {
+    /* diagnóstico é opcional */
+  }
+}
+checkHealth();
 
 async function doLogin() {
   loginError.classList.add("hidden");
@@ -436,7 +535,7 @@ async function doLogin() {
       const data = await res.json().catch(() => ({}));
       throw new Error(data.error || "Falha no login.");
     }
-    loginCard.classList.add("hidden");
+    hideLogin();
     loginPassword.value = "";
   } catch (err) {
     loginError.textContent = err.message;
