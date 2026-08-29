@@ -1,0 +1,50 @@
+# Implantação em servidor próprio/VPS (ver DEPLOY-BRASIL.md).
+# HTTPS automático via Caddy (Let's Encrypt). O serviço "ollama" é opcional
+# e só sobe com: docker compose --profile nacional up -d
+
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      - APP_PASSWORD=${APP_PASSWORD}
+      - LLM_PROVIDER=${LLM_PROVIDER:-anthropic}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.1:8b}
+      - NO_HTTPS=1
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMINIO=${DOMINIO}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  ollama:
+    image: ollama/ollama
+    restart: unless-stopped
+    profiles: ["nacional"]
+    volumes:
+      - ollama_models:/root/.ollama
+    # Com GPU NVIDIA no servidor, descomente:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  caddy_data:
+  caddy_config:
+  ollama_models:

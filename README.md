@@ -114,6 +114,10 @@ Notas:
 - Para outras plataformas (Fly.io, Railway, Cloud Run, VPS), use o `Dockerfile` incluído; defina `ANTHROPIC_API_KEY`, `APP_PASSWORD` e `NO_HTTPS=1`.
 - O servidor não armazena consultas: o áudio nunca sai do aparelho (transcrição no navegador) e a transcrição em texto só transita até a API da Anthropic.
 
+## Servidor no Brasil / dados sensíveis (LGPD)
+
+Para hospedar em datacenter brasileiro — inclusive no **modo 100% nacional**, em que a anamnese é gerada por um modelo local (Ollama) e **nenhum dado clínico sai do servidor** — siga o guia [DEPLOY-BRASIL.md](DEPLOY-BRASIL.md) (`docker-compose.yml` + `Caddyfile` inclusos, HTTPS automático).
+
 ## Notas
 
 - No navegador, a transcrição ao vivo usa a Web Speech API (Chrome e Edge). Nesse modo o áudio do reconhecimento é processado por serviço do navegador — avalie a política de privacidade aplicável ao seu contexto clínico antes de usar com pacientes reais. A alternativa "Transcrever gravação (local)" processa tudo no dispositivo e também funciona em qualquer navegador.

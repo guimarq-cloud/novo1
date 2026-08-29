@@ -17,6 +17,16 @@ const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-opus-5";
 const PORT = Number(process.env.PORT ?? 3000);
 const HTTPS_PORT = Number(process.env.HTTPS_PORT ?? 3443);
 
+// Provedor do modelo de linguagem:
+// - "anthropic" (padrão): API do Claude — melhor qualidade; o texto da
+//   transcrição é processado nos servidores da Anthropic (exterior).
+// - "ollama": modelo aberto rodando no PRÓPRIO servidor — nenhum dado
+//   sai da máquina; use quando a residência nacional dos dados for
+//   obrigatória (ver DEPLOY-BRASIL.md).
+const LLM_PROVIDER = (process.env.LLM_PROVIDER ?? "anthropic").toLowerCase();
+const OLLAMA_URL = process.env.OLLAMA_URL ?? "http://localhost:11434";
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "llama3.1:8b";
+
 const client = new Anthropic();
 
 const app = express();
@@ -115,6 +125,66 @@ function isValidTurn(t: unknown): t is ChatTurn {
 }
 
 /**
+ * Modo 100% nacional: gera a anamnese num modelo aberto servido pelo
+ * Ollama na própria máquina — a transcrição não sai do servidor.
+ */
+async function streamOllama(
+  turns: ChatTurn[],
+  send: (payload: Record<string, unknown>) => void
+): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(`${OLLAMA_URL}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: OLLAMA_MODEL,
+        stream: true,
+        think: false,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          ...turns.map((t) => ({ role: t.role, content: t.content })),
+        ],
+      }),
+    });
+  } catch {
+    throw new Error(
+      `Não foi possível conectar ao Ollama em ${OLLAMA_URL}. Verifique se o serviço está no ar (docker compose --profile nacional up -d).`
+    );
+  }
+  if (!response.ok || !response.body) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `Ollama respondeu ${response.status} para o modelo "${OLLAMA_MODEL}". ` +
+        `Se o modelo ainda não foi baixado, rode: ollama pull ${OLLAMA_MODEL}. ${detail.slice(0, 200)}`
+    );
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const chunk = JSON.parse(line) as {
+        message?: { content?: string };
+        done?: boolean;
+        error?: string;
+      };
+      if (chunk.error) throw new Error(`Erro do Ollama: ${chunk.error}`);
+      const text = chunk.message?.content;
+      if (typeof text === "string" && text.length > 0) send({ type: "delta", text });
+      if (chunk.done) return;
+    }
+  }
+}
+
+/**
  * Estrutura a anamnese a partir da conversa (transcrição + eventuais
  * respostas às dúvidas). Responde via Server-Sent Events com o texto em
  * streaming.
@@ -143,6 +213,25 @@ app.post("/api/anamnese", async (req, res) => {
   const send = (payload: Record<string, unknown>) => {
     res.write(`data: ${JSON.stringify(payload)}\n\n`);
   };
+
+  if (LLM_PROVIDER === "ollama") {
+    try {
+      await streamOllama(turns, send);
+      send({ type: "done" });
+    } catch (error) {
+      console.error("Erro em /api/anamnese (ollama):", error);
+      send({
+        type: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Erro inesperado ao gerar a anamnese no modelo local.",
+      });
+    } finally {
+      res.end();
+    }
+    return;
+  }
 
   const messages: Anthropic.Beta.BetaMessageParam[] = turns.map((t) => ({
     role: t.role,
@@ -217,7 +306,11 @@ app.post("/api/anamnese", async (req, res) => {
 /** Inicia o servidor HTTP. Porta 0 escolhe uma porta livre (usado pelo app desktop). */
 export function startServer(port: number = PORT) {
   return app.listen(port, () => {
-    if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
+    if (
+      LLM_PROVIDER !== "ollama" &&
+      !process.env.ANTHROPIC_API_KEY &&
+      !process.env.ANTHROPIC_AUTH_TOKEN
+    ) {
       console.warn(
         "Aviso: ANTHROPIC_API_KEY não definida. Configure-a em .env (veja .env.example) ou autentique-se com `ant auth login`."
       );
