@@ -1,6 +1,7 @@
 import "dotenv/config";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import http from "node:http";
 import https from "node:https";
 import os from "node:os";
 import path from "node:path";
@@ -125,63 +126,105 @@ function isValidTurn(t: unknown): t is ChatTurn {
 }
 
 /**
+ * POST no Ollama via node:http, sem timeout: o carregamento do modelo em
+ * servidores modestos pode levar vários minutos, e o fetch padrão aborta
+ * aos 5 min (derrubando o carregamento junto).
+ */
+function postOllama(apiPath: string, payload: unknown): Promise<http.IncomingMessage> {
+  return new Promise((resolve, reject) => {
+    const url = new URL(apiPath, OLLAMA_URL);
+    const req = http.request(
+      {
+        hostname: url.hostname,
+        port: url.port || 80,
+        path: url.pathname,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      },
+      resolve
+    );
+    req.on("error", reject);
+    req.end(JSON.stringify(payload));
+  });
+}
+
+/**
  * Modo 100% nacional: gera a anamnese num modelo aberto servido pelo
  * Ollama na própria máquina — a transcrição não sai do servidor.
+ * keep_alive: -1 mantém o modelo carregado na memória para sempre, para
+ * que a espera longa do carregamento aconteça uma única vez.
  */
 async function streamOllama(
   turns: ChatTurn[],
   send: (payload: Record<string, unknown>) => void
 ): Promise<void> {
-  let response: Response;
+  let response: http.IncomingMessage;
   try {
-    response = await fetch(`${OLLAMA_URL}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        stream: true,
-        think: false,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          ...turns.map((t) => ({ role: t.role, content: t.content })),
-        ],
-      }),
+    response = await postOllama("/api/chat", {
+      model: OLLAMA_MODEL,
+      stream: true,
+      think: false,
+      keep_alive: -1,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        ...turns.map((t) => ({ role: t.role, content: t.content })),
+      ],
     });
   } catch {
     throw new Error(
       `Não foi possível conectar ao Ollama em ${OLLAMA_URL}. Verifique se o serviço está no ar (docker compose --profile nacional up -d).`
     );
   }
-  if (!response.ok || !response.body) {
-    const detail = await response.text().catch(() => "");
+  if (response.statusCode !== 200) {
+    let detail = "";
+    for await (const chunk of response) detail += chunk;
     throw new Error(
-      `Ollama respondeu ${response.status} para o modelo "${OLLAMA_MODEL}". ` +
+      `Ollama respondeu ${response.statusCode} para o modelo "${OLLAMA_MODEL}". ` +
         `Se o modelo ainda não foi baixado, rode: ollama pull ${OLLAMA_MODEL}. ${detail.slice(0, 200)}`
     );
   }
 
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
   let buffer = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+  for await (const chunk of response) {
+    buffer += chunk.toString("utf8");
     const lines = buffer.split("\n");
     buffer = lines.pop() ?? "";
     for (const line of lines) {
       if (!line.trim()) continue;
-      const chunk = JSON.parse(line) as {
+      const parsed = JSON.parse(line) as {
         message?: { content?: string };
         done?: boolean;
         error?: string;
       };
-      if (chunk.error) throw new Error(`Erro do Ollama: ${chunk.error}`);
-      const text = chunk.message?.content;
+      if (parsed.error) throw new Error(`Erro do Ollama: ${parsed.error}`);
+      const text = parsed.message?.content;
       if (typeof text === "string" && text.length > 0) send({ type: "delta", text });
-      if (chunk.done) return;
+      if (parsed.done) {
+        response.destroy();
+        return;
+      }
     }
   }
+}
+
+/**
+ * Pré-carrega o modelo na memória assim que o servidor sobe (com novas
+ * tentativas enquanto o Ollama inicializa), para que nenhum usuário pague
+ * os minutos do carregamento inicial.
+ */
+function warmUpOllama(attempt = 1): void {
+  postOllama("/api/chat", { model: OLLAMA_MODEL, messages: [], keep_alive: -1 })
+    .then(async (res) => {
+      res.resume();
+      if (res.statusCode === 200) {
+        console.log(`Modelo ${OLLAMA_MODEL} carregado e residente na memória.`);
+      } else if (attempt < 30) {
+        setTimeout(() => warmUpOllama(attempt + 1), 30_000);
+      }
+    })
+    .catch(() => {
+      if (attempt < 30) setTimeout(() => warmUpOllama(attempt + 1), 30_000);
+    });
 }
 
 /**
@@ -305,6 +348,7 @@ app.post("/api/anamnese", async (req, res) => {
 
 /** Inicia o servidor HTTP. Porta 0 escolhe uma porta livre (usado pelo app desktop). */
 export function startServer(port: number = PORT) {
+  if (LLM_PROVIDER === "ollama") warmUpOllama();
   return app.listen(port, () => {
     if (
       LLM_PROVIDER !== "ollama" &&

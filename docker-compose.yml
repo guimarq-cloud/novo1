@@ -38,6 +38,8 @@ services:
       # a RAM necessária, essencial em servidores de 8 GB.
       - OLLAMA_NUM_PARALLEL=1
       - OLLAMA_MAX_LOADED_MODELS=1
+      # Mantém o modelo carregado na memória (sem descarregar por inatividade)
+      - OLLAMA_KEEP_ALIVE=-1
     volumes:
       - ollama_models:/root/.ollama
     # Com GPU NVIDIA no servidor, descomente:
