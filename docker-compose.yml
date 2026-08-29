@@ -33,6 +33,11 @@ services:
     image: ollama/ollama
     restart: unless-stopped
     profiles: ["nacional"]
+    environment:
+      # Uma consulta por vez e um modelo carregado por vez: reduz bastante
+      # a RAM necessária, essencial em servidores de 8 GB.
+      - OLLAMA_NUM_PARALLEL=1
+      - OLLAMA_MAX_LOADED_MODELS=1
     volumes:
       - ollama_models:/root/.ollama
     # Com GPU NVIDIA no servidor, descomente:
