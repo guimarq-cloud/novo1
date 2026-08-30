@@ -1,12 +1,14 @@
 // Service worker do PWA: mantém a casca do app em cache para abrir rápido.
 // Chamadas à API e à transcrição local nunca passam pelo cache.
 
-const CACHE = "anamnese-v2";
+const CACHE = "anamnese-v3";
 const SHELL = [
   "/",
   "/styles.css",
   "/app.js",
-  "/icon.png",
+  "/favicon.ico",
+  "/icons/icon-32.png",
+  "/icons/icon-180.png",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
   "/manifest.webmanifest",

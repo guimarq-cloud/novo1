@@ -63,7 +63,7 @@
       }
     },
     "win": {
-      "icon": "build/icon.png",
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -77,7 +77,9 @@
       "oneClick": true,
       "createDesktopShortcut": "always",
       "shortcutName": "Anamnese Médica",
-      "artifactName": "AnamneseMedica-Setup-${version}.${ext}"
+      "artifactName": "AnamneseMedica-Setup-${version}.${ext}",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
     }
   }
 }
