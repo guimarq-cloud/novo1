@@ -10,6 +10,11 @@ import express from "express";
 import Anthropic from "@anthropic-ai/sdk";
 import { generate as generateCert } from "selfsigned";
 import { SYSTEM_PROMPT } from "./prompt.js";
+import {
+  SYSTEM_PROMPT_LOCAL,
+  EXEMPLO_TRANSCRICAO,
+  EXEMPLO_ANAMNESE,
+} from "./prompt-local.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.resolve(here, "..", "public");
@@ -236,7 +241,11 @@ async function streamOllama(
         keep_alive: -1,
         options: OLLAMA_OPTIONS,
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: SYSTEM_PROMPT_LOCAL },
+          // Exemplo resolvido: modelos pequenos aderem ao formato por
+          // imitação muito mais do que por descrição.
+          { role: "user", content: EXEMPLO_TRANSCRICAO },
+          { role: "assistant", content: EXEMPLO_ANAMNESE },
           ...turns.map((t) => ({ role: t.role, content: t.content })),
         ],
       },

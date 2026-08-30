@@ -139,6 +139,18 @@ Para acelerar, em ordem de custo: usar `llama3.2:3b` (2–3× mais rápido, qual
 
 Trocar o modelo do Modo B: edite `OLLAMA_MODEL` no `.env` (ex.: `qwen3:14b` com 32 GB RAM ou GPU), rode o `ollama pull` correspondente e `docker compose up -d`.
 
+### Qualidade do texto (Modo B)
+
+O modo nacional usa um prompt próprio (`src/prompt-local.ts`): molde fixo das seções, glossário leigo→técnico e um exemplo resolvido — modelos abertos pequenos seguem formato por imitação, não por descrição. Se a anamnese ainda vier desorganizada ou coloquial, o caminho é trocar o modelo:
+
+| Modelo | RAM | Observação |
+|---|---|---|
+| `llama3.1:8b` | ~6 GB | padrão; português razoável, adesão a formato mediana |
+| `qwen3:8b` | ~6 GB | costuma seguir instruções e escrever em português melhor que o llama 8B — primeira troca a testar |
+| `gemma3:12b` / `qwen3:14b` | ~10 GB | qualidade nitidamente superior; exige 16 GB de RAM |
+
+Troque com `docker compose exec ollama ollama pull MODELO`, ajuste `OLLAMA_MODEL` no `.env` e rode `docker compose --profile nacional up -d`. Gere a mesma anamnese nos dois e compare — é a única forma honesta de escolher.
+
 ### Diagnóstico rápido pelo navegador
 
 Abra `https://SEU-DOMINIO/api/health` — ele responde, sem precisar de terminal:
