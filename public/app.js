@@ -184,32 +184,61 @@ btnRecord.addEventListener("click", () => {
 // em qualquer navegador. O modelo (~80 MB) é baixado na primeira vez e
 // fica em cache; o áudio nunca sai do computador.
 
-const WHISPER_MODEL = "onnx-community/whisper-base";
+const WHISPER_MODEL_PADRAO = "onnx-community/whisper-base";
 let transcriberPromise = null;
+
+/** O servidor hospeda o modelo? Evita depender do Hugging Face em cada aparelho. */
+async function modeloLocalDisponivel() {
+  try {
+    const res = await fetch("/models/manifest.json", { cache: "no-store" });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
 
 function getTranscriber() {
   if (!transcriberPromise) {
     transcriberPromise = (async () => {
-      const { pipeline, env } = await import(
-        "/vendor/transformers/transformers.min.js"
-      );
-      // Runtime ONNX servido pelo próprio app (sem CDN); os pesos do modelo
-      // vêm do Hugging Face na primeira vez e ficam em cache no dispositivo.
+      let lib;
+      try {
+        lib = await import("/vendor/transformers/transformers.min.js");
+      } catch {
+        throw new Error(
+          "Os arquivos do transcritor não foram encontrados no servidor (/vendor). " +
+            "Refaça a implantação com: docker compose --profile nacional up -d --build"
+        );
+      }
+      const { pipeline, env } = lib;
+      // Runtime ONNX servido pelo próprio app (sem CDN).
       env.backends.onnx.wasm.wasmPaths = "/vendor/ort/";
-      return pipeline("automatic-speech-recognition", WHISPER_MODEL, {
-        progress_callback: (info) => {
-          if (info.status === "progress" && info.total) {
-            const pct = Math.round((info.loaded / info.total) * 100);
-            transcribeStatus.textContent = `Baixando modelo de transcrição… ${pct}% (só na primeira vez)`;
-          }
-        },
-      });
+
+      const local = await modeloLocalDisponivel();
+      const options = { progress_callback: relatarProgressoDownload };
+      if (local) {
+        // Modelo hospedado no próprio servidor: nada é buscado fora.
+        env.allowRemoteModels = false;
+        env.allowLocalModels = true;
+        env.localModelPath = "/models/";
+        if (local.dtype) options.dtype = local.dtype;
+        return pipeline("automatic-speech-recognition", local.model, options);
+      }
+      // Sem modelo hospedado: baixa do Hugging Face (exige internet no aparelho).
+      return pipeline("automatic-speech-recognition", WHISPER_MODEL_PADRAO, options);
     })();
     transcriberPromise.catch(() => {
       transcriberPromise = null;
     });
   }
   return transcriberPromise;
+}
+
+function relatarProgressoDownload(info) {
+  if (info.status === "progress" && info.total) {
+    const pct = Math.round((info.loaded / info.total) * 100);
+    transcribeStatus.textContent = `Carregando modelo de transcrição… ${pct}% (só na primeira vez)`;
+  }
 }
 
 async function blobToMono16k(blob) {
@@ -234,12 +263,31 @@ async function blobToMono16k(blob) {
 btnTranscribe.addEventListener("click", async () => {
   if (!lastAudioBlob) return;
   btnTranscribe.disabled = true;
-  transcribeStatus.textContent = "Preparando transcrição…";
+  const iniciadoEm = Date.now();
+  const cronometro = setInterval(() => {
+    const s = Math.floor((Date.now() - iniciadoEm) / 1000);
+    if (transcribeStatus.dataset.base) {
+      transcribeStatus.textContent = `${transcribeStatus.dataset.base} (${s}s)`;
+    }
+  }, 1000);
+  const etapa = (texto) => {
+    transcribeStatus.dataset.base = texto;
+    transcribeStatus.textContent = texto;
+  };
+  etapa("Preparando o transcritor…");
   try {
     const transcriber = await getTranscriber();
-    transcribeStatus.textContent = "Convertendo o áudio…";
-    const audio = await blobToMono16k(lastAudioBlob);
-    transcribeStatus.textContent = "Transcrevendo… (pode levar alguns minutos)";
+    etapa("Convertendo o áudio…");
+    let audio;
+    try {
+      audio = await blobToMono16k(lastAudioBlob);
+    } catch {
+      throw new Error(
+        "Não foi possível ler o áudio gravado neste navegador. Tente gravar novamente ou use outro navegador."
+      );
+    }
+    if (!audio.length) throw new Error("A gravação está vazia. Grave novamente.");
+    etapa("Transcrevendo no seu aparelho…");
     const output = await transcriber(audio, {
       language: "portuguese",
       task: "transcribe",
@@ -247,6 +295,7 @@ btnTranscribe.addEventListener("click", async () => {
       stride_length_s: 5,
     });
     const text = (output.text || "").trim();
+    delete transcribeStatus.dataset.base;
     if (text) {
       appendTranscript(text);
       transcribeStatus.textContent = "Transcrição concluída. Revise o texto no passo 2.";
@@ -255,9 +304,15 @@ btnTranscribe.addEventListener("click", async () => {
     }
   } catch (err) {
     console.error(err);
-    transcribeStatus.textContent =
-      "Falha na transcrição local (na primeira vez é preciso internet para baixar o modelo).";
+    delete transcribeStatus.dataset.base;
+    const detalhe = err && err.message ? err.message : String(err);
+    // Mostra a causa real: sem ela é impossível saber o que corrigir.
+    transcribeStatus.textContent = /fetch|network|Failed to|HTTP|load model|Unauthorized/i.test(detalhe)
+      ? "Falha ao carregar o modelo de transcrição. Se o servidor não hospeda o modelo, o aparelho precisa de internet liberada para huggingface.co. Detalhe: " +
+        detalhe
+      : "Falha na transcrição. Detalhe: " + detalhe;
   } finally {
+    clearInterval(cronometro);
     btnTranscribe.disabled = false;
   }
 });

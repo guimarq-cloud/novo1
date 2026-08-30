@@ -15,6 +15,9 @@ services:
       - NO_HTTPS=1
     expose:
       - "3000"
+    volumes:
+      # Modelo de transcrição hospedado no servidor: sobrevive a rebuilds.
+      - whisper_models:/app/public/models
 
   caddy:
     image: caddy:2
@@ -52,6 +55,7 @@ services:
     #           capabilities: [gpu]
 
 volumes:
+  whisper_models:
   caddy_data:
   caddy_config:
   ollama_models:

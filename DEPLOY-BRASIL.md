@@ -100,6 +100,22 @@ O Caddy emite o certificado HTTPS sozinho na primeira visita (Let's Encrypt).
 2. Cole uma transcrição de teste e gere a anamnese.
 3. Nos celulares: Chrome → ⋮ → "Instalar app" / Safari → Compartilhar → "Adicionar à Tela de Início". Sem avisos de certificado.
 
+## 6.1 Transcrição: hospede o modelo no servidor (recomendado)
+
+A transcrição do áudio acontece **no navegador do usuário** (o áudio nunca sai do aparelho). Por padrão, cada aparelho baixa o modelo de transcrição do Hugging Face na primeira vez — o que exige internet liberada para `huggingface.co` e falha em redes restritas.
+
+Para que o modelo venha do **seu próprio servidor** (mais rápido, sem depender de site externo, e sem que os aparelhos precisem de acesso a domínios de fora):
+
+```bash
+cd /opt/anamnese
+docker compose exec app node scripts/fetch-whisper.mjs
+docker compose restart app
+```
+
+São ~50 MB baixados uma única vez, guardados num volume que sobrevive a atualizações do app. Depois disso, `https://SEU-DOMINIO/api/health` deve mostrar `"modeloTranscricaoNoServidor": true`.
+
+Para trocar o modelo por um mais preciso (e mais pesado): `docker compose exec app node scripts/fetch-whisper.mjs onnx-community/whisper-small q8`.
+
 ## 7. Operação
 
 ```bash
@@ -110,6 +126,19 @@ docker compose --profile nacional exec ollama ollama pull MODELO   # trocar/atua
 ```
 
 Trocar o modelo do Modo B: edite `OLLAMA_MODEL` no `.env` (ex.: `qwen3:14b` com 32 GB RAM ou GPU), rode o `ollama pull` correspondente e `docker compose up -d`.
+
+### Diagnóstico rápido pelo navegador
+
+Abra `https://SEU-DOMINIO/api/health` — ele responde, sem precisar de terminal:
+
+| Campo | O que significa |
+|---|---|
+| `provider` / `model` | Qual IA está em uso |
+| `ollamaOnline` | Se o serviço de IA local está no ar |
+| `modelDownloaded` / `modelLoaded` | Se o modelo foi baixado e se já está residente na memória |
+| `ramTotalGb` / `ramFreeGb` | Memória real da máquina (útil quando a geração falha por falta de RAM) |
+| `transcritorInstalado` | Se a biblioteca de transcrição está disponível no servidor |
+| `modeloTranscricaoNoServidor` | Se o modelo de transcrição está hospedado aqui (seção 6.1) |
 
 ## 8. Checklist LGPD (resumo técnico)
 

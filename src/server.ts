@@ -37,6 +37,17 @@ app.set("trust proxy", 1);
 app.use(express.json({ limit: "2mb" }));
 app.use(express.static(publicDir));
 
+// Biblioteca de transcrição servida direto dos pacotes instalados. Antes ela
+// dependia só de uma cópia feita no build (public/vendor), que podia faltar no
+// contêiner e derrubava a transcrição sem explicação; a cópia continua tendo
+// prioridade quando existe, e isto garante o restante.
+const nodeModules = path.resolve(here, "..", "node_modules");
+app.use(
+  "/vendor/transformers",
+  express.static(path.join(nodeModules, "@huggingface", "transformers", "dist"))
+);
+app.use("/vendor/ort", express.static(path.join(nodeModules, "onnxruntime-web", "dist")));
+
 // ---------- Autenticação por senha (para hospedagem na internet) ----------
 // Sem APP_PASSWORD definida (uso local/desktop), nenhuma senha é exigida.
 // Com APP_PASSWORD, /api/anamnese passa a exigir o cookie de sessão emitido
@@ -438,6 +449,15 @@ app.get("/api/health", async (_req, res) => {
     model: LLM_PROVIDER === "ollama" ? OLLAMA_MODEL : MODEL,
     ramTotalGb: totalGb,
     ramFreeGb: freeGb,
+    // Transcrição: biblioteca servida pelo app e modelo hospedado aqui?
+    transcritorInstalado:
+      fs.existsSync(path.join(publicDir, "vendor", "transformers", "transformers.min.js")) ||
+      fs.existsSync(
+        path.join(nodeModules, "@huggingface", "transformers", "dist", "transformers.min.js")
+      ),
+    modeloTranscricaoNoServidor: fs.existsSync(
+      path.join(publicDir, "models", "manifest.json")
+    ),
   };
   if (LLM_PROVIDER === "ollama") {
     health.modelLoaded = await isModelLoaded();
