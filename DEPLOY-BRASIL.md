@@ -125,6 +125,18 @@ git pull && docker compose up -d --build   # atualizar o app
 docker compose --profile nacional exec ollama ollama pull MODELO   # trocar/atualizar modelo
 ```
 
+### Velocidade da geração (Modo B)
+
+Meça com `docker compose exec ollama ollama run $OLLAMA_MODEL --verbose "Escreva uma frase."` e olhe o `eval rate`:
+
+| eval rate | Tempo por anamnese | Leitura |
+|---|---|---|
+| acima de 8 tokens/s | ~1 min | confortável |
+| 3–8 tokens/s | 2–5 min | usável; incomoda em consulta seguida |
+| abaixo de 3 tokens/s | acima de 5 min | trocar de modelo ou aumentar a máquina |
+
+Para acelerar, em ordem de custo: usar `llama3.2:3b` (2–3× mais rápido, qualidade um degrau abaixo), aumentar o número de vCPUs do plano (a geração escala quase linearmente com núcleos) ou migrar para servidor com GPU (resposta em segundos).
+
 Trocar o modelo do Modo B: edite `OLLAMA_MODEL` no `.env` (ex.: `qwen3:14b` com 32 GB RAM ou GPU), rode o `ollama pull` correspondente e `docker compose up -d`.
 
 ### Diagnóstico rápido pelo navegador

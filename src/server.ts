@@ -28,6 +28,17 @@ const LLM_PROVIDER = (process.env.LLM_PROVIDER ?? "anthropic").toLowerCase();
 const OLLAMA_URL = process.env.OLLAMA_URL ?? "http://localhost:11434";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "llama3.1:8b";
 
+// Ajustes de geração do modelo local. Os padrões do Ollama não servem para
+// documentação clínica: temperature 0.8 favorece invenção de dados, e
+// num_ctx 4096 trunca silenciosamente transcrições longas (o modelo perderia
+// o início da consulta).
+const OLLAMA_OPTIONS = {
+  temperature: 0.2,
+  top_p: 0.9,
+  num_ctx: Number(process.env.OLLAMA_NUM_CTX ?? 8192),
+  num_predict: 2048,
+};
+
 const client = new Anthropic();
 
 const app = express();
@@ -223,6 +234,7 @@ async function streamOllama(
         stream: true,
         think: false,
         keep_alive: -1,
+        options: OLLAMA_OPTIONS,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           ...turns.map((t) => ({ role: t.role, content: t.content })),
@@ -280,7 +292,14 @@ async function streamOllama(
  * os minutos do carregamento inicial.
  */
 function warmUpOllama(attempt = 1): void {
-  postOllama("/api/chat", { model: OLLAMA_MODEL, messages: [], keep_alive: -1 })
+  postOllama("/api/chat", {
+    model: OLLAMA_MODEL,
+    messages: [],
+    keep_alive: -1,
+    // Mesmas opções da geração: carregar com outro num_ctx faria o Ollama
+    // recarregar o modelo do zero na primeira anamnese.
+    options: OLLAMA_OPTIONS,
+  })
     .then(async (res) => {
       res.resume();
       if (res.statusCode === 200) {
